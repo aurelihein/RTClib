@@ -5,6 +5,8 @@
 #define PCF8523_CONTROL_1 0x00     ///< Control and status register 1
 #define PCF8523_CONTROL_2 0x01     ///< Control and status register 2
 #define PCF8523_CONTROL_3 0x02     ///< Control and status register 3
+#define PCF8523_TIMER_A_FRCTL 0x10 ///< Timer A source clock frequency control
+#define PCF8523_TIMER_A_VALUE 0x11 ///< Timer A value (number clock periods)
 #define PCF8523_TIMER_B_FRCTL 0x12 ///< Timer B source clock frequency control
 #define PCF8523_TIMER_B_VALUE 0x13 ///< Timer B value (number clock periods)
 #define PCF8523_OFFSET 0x0E        ///< Offset register
@@ -18,6 +20,8 @@
 */
 /**************************************************************************/
 bool RTC_PCF8523::begin(TwoWire *wireInstance) {
+  wdgTimeoutUnitySet = PCF8523_WDG_DISABLED;
+  wdgTimeoutValueSet = 0;
   if (i2c_dev)
     delete i2c_dev;
   i2c_dev = new Adafruit_I2CDevice(PCF8523_ADDRESS, wireInstance);
@@ -257,7 +261,11 @@ void RTC_PCF8523::stop(void) {
     @brief  Reset RTC sending 0x58 in register Control_1
 */
 /**************************************************************************/
-void RTC_PCF8523::reset(void) { write_register(PCF8523_CONTROL_1, 0x58); }
+void RTC_PCF8523::reset(void) {
+  wdgTimeoutUnitySet = PCF8523_WDG_DISABLED;
+  wdgTimeoutValueSet = 0;
+  write_register(PCF8523_CONTROL_1, 0x58);
+  }
 
 /**************************************************************************/
 /*!
@@ -315,6 +323,84 @@ void RTC_PCF8523::enableSecondTimer() {
 void RTC_PCF8523::disableSecondTimer() {
   write_register(PCF8523_CONTROL_1,
                  read_register(PCF8523_CONTROL_1) & ~(1 << 2));
+}
+
+/**************************************************************************/
+/*!
+    @brief  Enable Timer A as Watchdog permanent Interrupt on the PCF8523.
+  How :
+  TAC[2:1] = 10 : {Tmr_CLKOUT_ctrl(0x0F)} : set as watchdog timer
+  TAQ[2:0] : {Tmr_A_freq_ctrl(0x10)} : determine source clock frequency
+  WTAIE(2) : {Control_2(0x01)} : watchdog timer A interrupt enabled
+
+  TAM(7) : {Tmr_CLKOUT_ctrl(0x0F)} : control the interrupt generation mode(permanent) force to 0
+
+  T_A : {Tmr_A_reg(0x11)} : determines the watchdog timer-period
+
+  The watchdog timer counts down from value T_A in register Tmr_A_reg (11h). When the
+  counter reaches 1, the watchdog timer flag WTAF (register Control_2) is set logic 1 on the
+  next rising edge of the timer clock
+
+  The counter does not automatically reload
+
+  When loading the counter with any valid value of T_A except 0, (interrupt is cleared, and watchdog timer starts)
+  When loading the counter with 0, The watchdog timer stops
+
+  A read of the register Control_2 (01h) automatically resets WTAF (WTAF = 0) and clears the interrupt
+*/
+/**************************************************************************/
+void RTC_PCF8523::enableWatchdog(PCF8523WatchdogTimeoutUnity wdgTimeoutUnity, uint8_t wdgTimeoutValue) {
+  uint8_t ctlreg = read_register(PCF8523_CONTROL_2);
+  if(wdgTimeoutUnitySet || wdgTimeoutValueSet){
+    disableWatchdog();
+  }
+  if((!wdgTimeoutUnity)||(!wdgTimeoutValue)){
+    return;
+  }
+  wdgTimeoutUnitySet = wdgTimeoutUnity;
+  wdgTimeoutValueSet = wdgTimeoutValue;
+  write_register(PCF8523_TIMER_A_VALUE,0);//Stop the watchdog timer
+  //TAC[2:1] = 10 : {Tmr_CLKOUT_ctrl(0x0F)} : set as watchdog timer
+  write_register(PCF8523_CLKOUTCONTROL,
+    (read_register(PCF8523_CLKOUTCONTROL) & 0xFC) | (0x02 << 1));
+  //TAQ[2:0] : {Tmr_A_freq_ctrl(0x10)} : determine source clock frequency
+  write_register(PCF8523_TIMER_A_FRCTL,
+    (read_register(PCF8523_TIMER_A_FRCTL) & 0xF8) | wdgTimeoutUnitySet);
+  //WTAIE(2) : {Control_2(0x01)} : watchdog timer A interrupt enabled
+  write_register(PCF8523_CONTROL_2, ctlreg | (1 << 2));
+  //TAM(7) : {Tmr_CLKOUT_ctrl(0x0F)} : control the interrupt generation mode(permanent) force to 0
+  write_register(PCF8523_CLKOUTCONTROL,
+    read_register(PCF8523_CLKOUTCONTROL) & ~(1<<7));
+
+  //Start the watchdog timer
+  write_register(PCF8523_TIMER_A_VALUE, wdgTimeoutValueSet);
+}
+
+/**************************************************************************/
+/*!
+    @brief  Reset Timer A Watchdog on the PCF8523.
+*/
+/**************************************************************************/
+
+void RTC_PCF8523::resetWatchdog(void) {
+  if((!wdgTimeoutUnitySet)||(!wdgTimeoutValueSet)){
+    return;
+  }
+  write_register(PCF8523_TIMER_A_VALUE, wdgTimeoutValueSet);
+}
+
+/**************************************************************************/
+/*!
+    @brief  Disable Timer A Watchdog on the PCF8523.
+*/
+/**************************************************************************/
+
+void RTC_PCF8523::disableWatchdog(void) {
+  uint8_t ctlreg = read_register(PCF8523_CONTROL_2);
+  // WTAIE set to 0
+  write_register(PCF8523_CONTROL_2, ctlreg & ~(1 << 2));
+  wdgTimeoutUnitySet = PCF8523_WDG_DISABLED;
+  wdgTimeoutValueSet = 0;
 }
 
 /**************************************************************************/
