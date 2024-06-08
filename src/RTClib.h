@@ -425,6 +425,7 @@ public:
   void adjust(const DateTime &dt);
   bool lostPower(void);
   bool initialized(void);
+  bool isWatchdogFired(void);
   bool isAlarmFired(void);
   bool isAnyAlarmSetup(void);
   DateTime now();

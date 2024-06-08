@@ -139,6 +139,19 @@ void RTC_PCF8523::enableAlarm() {
 
 /**************************************************************************/
 /*!
+    @brief  Check Watchdog TimerA fired, isWatchdogFired must be read at the
+    very beginning, because flag is read-only and cleared by reading
+    register Control_2
+    @return 1 if a Watchdog TimerA fired
+*/
+/**************************************************************************/
+
+bool RTC_PCF8523::isWatchdogFired(void) {
+  return (read_register(PCF8523_CONTROL_2) & (1 << 7)); // Check WTAF
+}
+
+/**************************************************************************/
+/*!
     @brief  Check Alarm fired
     @return 1 if an alarm fired
 */
